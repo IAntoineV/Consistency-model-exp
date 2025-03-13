@@ -16,7 +16,7 @@ class DDPM(nn.Module):
         self.betas = torch.linspace(0.0001, 0.02, T).to(device)
         self.alphas = 1 - self.betas
         self.alphas_cumprod = torch.cumprod(self.alphas, dim=0).to(device)
-        self.model = mlp_model if mlp_model else simple_mlp(in_dim, hidden_dim, out_dim)
+        self.model = mlp_model if mlp_model else mlp(in_dim, hidden_dim, out_dim)
         self.model.to(device)
         self.device = device
 
