@@ -33,6 +33,7 @@ class Circle2DDataset(Dataset):
         x,y = torch.cos(thetas), torch.sin(thetas)
         data = torch.stack([x,y], dim=-1)
         self.data = data
+        self.shape = list(x.shape)
 
     def __len__(self):
         return self.length

@@ -123,6 +123,7 @@ class ConsistencyModel(nn.Module):
         self.input_dim = in_dim
         self.output_dim = out_dim
         self.hidden_dim = hidden_dim
+        self.device = "cuda" if torch.cuda.is_available() else "cpu"
 
     def c_skip(self, t):
         """Skip coefficient ensuring c_skip(eps) = 1."""
@@ -144,6 +145,18 @@ class ConsistencyModel(nn.Module):
         output = c_skip_t * x + c_out_t * f_theta
 
         return output
+
+    def one_step_consistency_sampling(self, n_samples, time_steps=None):
+        if time_steps is None:
+            t_n = 1
+        else :
+            t_n =  time_steps[-1]
+        with torch.no_grad():
+            x = torch.randn(n_samples, self.input_dim, device=self.device) * t_n
+            t_n = torch.full((x.shape[0],),t_n, device=self.device) # sample from last time step
+            samples = self.forward(x, t_n)
+        return samples.cpu().numpy()
+
 
 def compute_time_steps(N, epsilon=2e-3, T=80, rho=7):
     """
@@ -181,7 +194,7 @@ def compute_x_hat(ddpm, x_tn1, t_n, t_n1, n_idx1):
 
 
 def consistency_distillation(cd_model, ddpm, dataset, epochs=5000, batch_size=128, lr=1e-4, mu=0.99,
-                             log_every=500):
+                             log_every=500,   lambda_tn = 1):
     """
     Train a consistency model using Consistency Distillation (CD) algorithm.
 
@@ -203,7 +216,7 @@ def consistency_distillation(cd_model, ddpm, dataset, epochs=5000, batch_size=12
     time_steps = compute_time_steps(N, T=1).to(device)
 
     # Shadow model for exponential moving average (EMA)
-    cd_model_shadow = ConsistencyModel()
+    cd_model_shadow = ConsistencyModel(in_dim=cd_model.input_dim, hidden_dim=cd_model.hidden_dim, out_dim=cd_model.output_dim, T=cd_model.T)
     cd_model_shadow.load_state_dict(cd_model.state_dict())
     cd_model_shadow.eval()
 
@@ -236,24 +249,39 @@ def consistency_distillation(cd_model, ddpm, dataset, epochs=5000, batch_size=12
         # Model prediction f_θ(x_{t_{n+1}}, t_{n+1})
         cm_pred = cd_model(x_tn1, t_n1)
 
-        lambda_tn = 1
-        loss = (lambda_tn * criterion(cm_pred, cm_target)).mean()
-
-        optimizer.zero_grad()
+      
+        loss =lambda_tn * criterion(cm_pred, cm_target).mean()
         loss.backward()
         optimizer.step()
+        optimizer.zero_grad()
 
         # EMA update for shadow model
         with torch.no_grad():
             for param, shadow_param in zip(cd_model.parameters(), cd_model_shadow.parameters()):
-                shadow_param.data = mu * shadow_param.data + (1 - mu) * param.data
-        print(f"Epoch {str(epoch).rjust(5)}, Loss: {loss.item():.6f}")
-        if epoch % log_every == 0:
+                shadow_param.data = mu * shadow_param.data + (1 - mu) * param.data.detach()
+  
+        if epoch % log_every == 0 or epoch==epochs-1:
+            print(f"Epoch {str(epoch).rjust(5)}, Loss: {loss.item():.6f}")
             # samples = multistep_consistency_sampling(cd_model, N, n_samples=1000, device=device).numpy()
-            samples = one_step_consistency_sampling(cd_model, time_steps, n_samples=1000, device=device).numpy()
-            plt.scatter(samples[:, 0], samples[:, 1], alpha=0.1)
-            plt.title(f"Generated Samples (Consistency Model) epoch={epoch}")
+            samples = cd_model.one_step_consistency_sampling(n_samples=1000, time_steps=time_steps)
+            plt.figure(figsize=(4,4))
+            plt.scatter(samples[:, 0], samples[:, 1], alpha=0.5)
             plt.show()
+            # ax[0].set_title(f"Generated Samples (Consistency Model) epoch={epoch}")
+            # ax[1].scatter(samples[:, 0], samples[:, 1], alpha=0.1)
+            # ax[1].set_ylim([])
+            # T = 1
+            # with torch.no_grad():
+            #     n_samples = 1000
+            #     # Generate initial random noise samples
+            #     x = torch.randn(n_samples, cd_model.input_dim, device=device) * T
+            #     t_n = time_steps[-1] #last time step
+            #     # Perform a single consistency model denoising step
+            #     t_n = torch.full((x.shape[0],), time_steps[-1], device=device)
+            #     samples = cd_model(x, t_n)
+            # samples = samples.cpu().numpy()
+            # plt.scatter(samples[:, 0], samples[:, 1], alpha=0.1)
+            # plt.show()
 
 
 def multistep_consistency_sampling(cm, N, n_samples=1000, device="cuda"):
@@ -298,15 +326,11 @@ def one_step_consistency_sampling(cm,time_steps,n_samples=1000, device="cuda" ):
         Sampled data from the model.
     """
     with torch.no_grad():
-        # Generate initial random noise samples
-        x = torch.randn(n_samples, cm.input_dim, device=device)
-
-        n_idx = torch.randint(0, len(time_steps), (n_samples,), device=device)
-        t_n = time_steps[n_idx]
-        # Perform a single consistency model denoising step
-        x = cm(x, t_n)
-
-    return x.cpu()
+        x = torch.randn(n_samples, cm.input_dim, device=device) * T
+        t_n = time_steps[-1] #last time step
+        t_n = torch.full((x.shape[0],), time_steps[-1], device=device)
+        samples = cm(x, t_n)
+    return samples.cpu().numpy()
 
 if __name__=="__main__":
     ddpm = torch.load("ddpm.pt")
