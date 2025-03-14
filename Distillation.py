@@ -267,21 +267,6 @@ def consistency_distillation(cd_model, ddpm, dataset, epochs=5000, batch_size=12
             plt.figure(figsize=(4,4))
             plt.scatter(samples[:, 0], samples[:, 1], alpha=0.5)
             plt.show()
-            # ax[0].set_title(f"Generated Samples (Consistency Model) epoch={epoch}")
-            # ax[1].scatter(samples[:, 0], samples[:, 1], alpha=0.1)
-            # ax[1].set_ylim([])
-            # T = 1
-            # with torch.no_grad():
-            #     n_samples = 1000
-            #     # Generate initial random noise samples
-            #     x = torch.randn(n_samples, cd_model.input_dim, device=device) * T
-            #     t_n = time_steps[-1] #last time step
-            #     # Perform a single consistency model denoising step
-            #     t_n = torch.full((x.shape[0],), time_steps[-1], device=device)
-            #     samples = cd_model(x, t_n)
-            # samples = samples.cpu().numpy()
-            # plt.scatter(samples[:, 0], samples[:, 1], alpha=0.1)
-            # plt.show()
 
 
 def multistep_consistency_sampling(cm, N, n_samples=1000, device="cuda"):
@@ -333,9 +318,25 @@ def one_step_consistency_sampling(cm,time_steps,n_samples=1000, device="cuda" ):
     return samples.cpu().numpy()
 
 if __name__=="__main__":
-    ddpm = torch.load("ddpm.pt")
-    dataset = torch.load("dataset.pt")
-    cd_model = ConsistencyModel()
-    consistency_distillation(cd_model, ddpm, dataset, epochs=10000, batch_size=128, lr=1e-2, mu=0.95,
-                             log_every=250)
+    from toy_dataset import Circle2DDataset
+    x = torch.Tensor([1,1])
+    y = torch.Tensor([2,2])
+    dataset = Circle2DDataset(2000,x,y)
+
+    print("Training DDPM")
+    ddpm = DDPM(hidden_dim=64, T=20)
+    train_ddpm(ddpm, dataset=dataset, epochs=25000, batch_size=128, log_every=1000, lr=5e-4)
+    print("Sampling DDPM")
+    samples = ddpm.sample()
+    plt.scatter(samples[:, 0], samples[:, 1], alpha=0.5)
+    plt.title("Generated Samples (DDPM)")
+    plt.show()
+    print("Training consistency model")
+    cm = ConsistencyModel(hidden_dim=64, T=ddpm.T)
+    consistency_distillation(ddpm=ddpm, cd_model=cm, dataset=dataset, lr=5e-4, mu=0.25, log_every=5000, lambda_tn=1000 , epochs=25000)
+    samples = cd_model.one_step_consistency_sampling(n_samples=1000, time_steps=time_steps)
+    plt.figure(figsize=(4,4))
+    plt.scatter(samples[:, 0], samples[:, 1], alpha=0.5)
+    plt.title("Generated samples Consistency model - Distillation")
+    plt.show()
 
