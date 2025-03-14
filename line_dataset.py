@@ -13,6 +13,7 @@ class LineDataset(Dataset):
         len_shape = len(shape)
         data = x.unsqueeze(0)+ (y-x).unsqueeze(0)*torch.rand([self.length]).view(-1, *[1]*len_shape )
         self.data = data
+        self.shape= shape
 
     def __len__(self):
         return self.length

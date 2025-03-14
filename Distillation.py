@@ -75,15 +75,14 @@ class DDPM(nn.Module):
         return x0
 
 
-def train_ddpm(ddpm_model, dataset, epochs=5000, batch_size=128, lr=3e-2, n_samples=5000, noise_dataset=0.1):
+def train_ddpm(ddpm_model, dataset, epochs=5000, batch_size=128, lr=3e-2, n_samples=5000, noise_dataset=0.1, log_every=500):
     device = "cuda" if torch.cuda.is_available() else "cpu"
     optimizer = optim.Adam(ddpm_model.model.parameters(), lr=lr)
     criterion = nn.MSELoss()
     ddpm_model.to(device)
-    dataset = dataset.to(device)
     for epoch in range(epochs):
         idx = torch.randint(0, dataset.shape[0], (batch_size,))
-        x0 = dataset[idx]
+        x0 = dataset[idx].to(device)
         t = np.random.randint(0, ddpm_model.T, (batch_size,))
         xt, noise = ddpm_model.forward_diffusion(x0, t)
         noise_pred = ddpm_model.model(torch.cat((xt, torch.tensor(t[:, None], device=device) / ddpm_model.T), dim=1))
@@ -91,7 +90,7 @@ def train_ddpm(ddpm_model, dataset, epochs=5000, batch_size=128, lr=3e-2, n_samp
         optimizer.zero_grad()
         loss.backward()
         optimizer.step()
-        if epoch % 500 == 0:
+        if epoch % log_every == 0:
             print(f"Epoch {epoch}, Loss: {loss.item():.4f}")
 
 
@@ -105,8 +104,6 @@ def mlp(in_dim, hidden_dim, out_dim):
         nn.ReLU(),
         nn.Linear(2 * hidden_dim, out_dim)
     )
-
-
 
 class ConsistencyModel(nn.Module):
     def __init__(self, in_dim=2, hidden_dim=128, out_dim=2, dropout_prob=0.1, T=120):
@@ -259,7 +256,6 @@ def consistency_distillation(cd_model, ddpm, dataset, epochs=5000, batch_size=12
             plt.show()
 
 
-
 def multistep_consistency_sampling(cm, N, n_samples=1000, device="cuda"):
     """
     Multistep Consistency Sampling algorithm for multiple samples.
@@ -316,6 +312,6 @@ if __name__=="__main__":
     ddpm = torch.load("ddpm.pt")
     dataset = torch.load("dataset.pt")
     cd_model = ConsistencyModel()
-    consistency_distillation(cd_model, ddpm, dataset, epochs=10000, batch_size=128, lr=1e-1, mu=0.90,
+    consistency_distillation(cd_model, ddpm, dataset, epochs=10000, batch_size=128, lr=1e-2, mu=0.95,
                              log_every=250)
 
