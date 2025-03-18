@@ -265,6 +265,7 @@ def consistency_distillation(cd_model, ddpm, dataset, epochs=5000, batch_size=12
             # samples = multistep_consistency_sampling(cd_model, N, n_samples=1000, device=device).numpy()
             samples = cd_model.one_step_consistency_sampling(n_samples=1000, time_steps=time_steps)
             plt.figure(figsize=(4,4))
+            plt.title(f"Consistency Model Epoch {epoch+1}")
             plt.scatter(samples[:, 0], samples[:, 1], alpha=0.5)
             plt.show()
 
@@ -298,7 +299,7 @@ def multistep_consistency_sampling(cm, N, n_samples=1000, device="cuda"):
     return x.cpu()
 
 
-def one_step_consistency_sampling(cm,time_steps,n_samples=1000, device="cuda" ):
+def one_step_consistency_sampling(cm,time_steps,n_samples=1000, device="cuda"):
     """
     One-Step Consistency Sampling algorithm.
 
@@ -325,7 +326,7 @@ if __name__=="__main__":
 
     print("Training DDPM")
     ddpm = DDPM(hidden_dim=64, T=20)
-    train_ddpm(ddpm, dataset=dataset, epochs=25000, batch_size=128, log_every=1000, lr=5e-4)
+    train_ddpm(ddpm, dataset=dataset, epochs=50000, batch_size=128, log_every=1000, lr=5e-4)
     print("Sampling DDPM")
     samples = ddpm.sample()
     plt.scatter(samples[:, 0], samples[:, 1], alpha=0.5)
@@ -333,8 +334,8 @@ if __name__=="__main__":
     plt.show()
     print("Training consistency model")
     cm = ConsistencyModel(hidden_dim=64, T=ddpm.T)
-    consistency_distillation(ddpm=ddpm, cd_model=cm, dataset=dataset, lr=5e-4, mu=0.25, log_every=5000, lambda_tn=1000 , epochs=25000)
-    samples = cd_model.one_step_consistency_sampling(n_samples=1000, time_steps=time_steps)
+    consistency_distillation(ddpm=ddpm, cd_model=cm, dataset=dataset, lr=5e-4, mu=0.25, log_every=2500, lambda_tn=1000 , epochs=50000)
+    samples = cd_model.one_step_consistency_sampling(n_samples=1000)
     plt.figure(figsize=(4,4))
     plt.scatter(samples[:, 0], samples[:, 1], alpha=0.5)
     plt.title("Generated samples Consistency model - Distillation")
