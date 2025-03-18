@@ -1,5 +1,7 @@
 import torch
 
+import torchvision
+import numpy as np
 from diffusers import ConsistencyModelPipeline
 
 # Karras diffusion Hyperparameters
@@ -9,6 +11,9 @@ sigma_min=0.002
 rho=7.0
 weight_schedule="karras"
 
+device = "cuda" if torch.cuda.is_available() else "cpu"
+
+# TODO change name of variable model/pipe
 
 @torch.no_grad()
 def iterative_inpainting(
@@ -21,9 +26,11 @@ def iterative_inpainting(
     rho=7.0,
     steps=40,
     generator=None,
-    use_square_mask = False
+    use_square_mask = False,
+    is_imagenet=False,
+    class_labels=None,
 ):
-    
+    assert not is_imagenet or class_labels, "class_labels need to be provided for ImageNet models" 
     image_size = x.shape[-1]
 
     if use_square_mask:
@@ -44,15 +51,17 @@ def iterative_inpainting(
 
     sigmas = get_sigmas_karras(steps, sigma_min, sigma_max, rho, device=device)
  
+    if class_labels:
+        class_labels = pipe.prepare_class_labels(batch_size=1, device=device, class_labels=class_labels)
+    
     for i in range(len(ts) - 1):
         t = (t_max_rho + ts[i] / (steps - 1) * (t_min_rho - t_max_rho)) ** rho
         print(f"Timestep T={ts[i]}")
-        # x0 = distiller(x, t * s_in).sample
-        x0 = denoise(pipe, x, sigmas[i])[1]
+        x0 = denoise(pipe, x, sigmas[i], class_labels=class_labels, is_imagenet=is_imagenet)[1]
 
         x0 = torch.clamp(x0, -1.0, 1.0)
         x0 = replacement(images, x0)
-        display_as_pilimg(x0)
+        display_as_pilimg(x0, title=f"Timestep T={ts[i]}")
         next_t = (t_max_rho + ts[i + 1] / (steps - 1) * (t_min_rho - t_max_rho)) ** rho
         next_t = np.clip(next_t, t_min, t_max)
         x = x0 + torch.randn_like(x) * np.sqrt(next_t**2 - t_min**2)
@@ -60,14 +69,19 @@ def iterative_inpainting(
     return x, images
 
 
-def denoise(model, x_t, sigmas):
+def denoise(pipe, x_t, sigmas, class_labels=None, is_imagenet=False):
     import torch.distributed as dist
     c_skip, c_out, c_in = [
         append_dims(x, x_t.ndim)
         for x in get_scalings_for_boundary_condition(sigmas)
     ]
     rescaled_t = 1000 * 0.25 * torch.log(sigmas + 1e-44)
-    model_output = model(c_in * x_t, rescaled_t).sample
+    input_unet = c_in * x_t
+    # if is_imagenet:
+    #     input_unet.to(torch.float16)
+    #     class_labels.to(torch.float16)
+    #     rescaled_t.to(torch.float16)
+    model_output = pipe.unet(input_unet, rescaled_t, class_labels=class_labels).sample
     denoised = c_out * model_output + c_skip * x_t
     return model_output, denoised
 
@@ -102,6 +116,7 @@ def create_square_mask(img_size):
     # Create mask: Initialize with ones (all visible), then set cropped area to 0 (masked area)
     mask = torch.ones((3, h, w), device=device)  # Assuming 3 channels (RGB)
     mask[:, corner_top:corner_top + hcrop, corner_left:corner_left + wcrop] = 0
+    display_as_pilimg(mask)
     return mask
 
 def create_s_mask(img_size):
@@ -141,6 +156,7 @@ def create_s_mask(img_size):
     return mask
 
 
+## utils 
 
 def append_dims(x, target_dims):
     """Appends dimensions to the end of a tensor until it has target_dims dimensions."""
@@ -155,6 +171,48 @@ def append_dims(x, target_dims):
 def append_zero(x):
     return torch.cat([x, x.new_zeros([1])])
 
+def display_as_pilimg_bigger(t, figsize=(3, 3), title=None):  # Set the desired figure size
+    t = 0.5 + 0.5 * t.to('cpu')
+    t = t.squeeze()
+    t = t.clamp(0., 1.)
+    pil_img = torchvision.transforms.ToPILImage()(t)
+
+    # Display using matplotlib
+    plt.figure(figsize=figsize)
+    if title:
+        plt.title(title)
+    plt.imshow(pil_img)
+    plt.axis('off')  # Hide axes
+    plt.show()
+    
+    return pil_img
+
+def pilimg_to_tensor(pil_img):
+  t = torchvision.transforms.ToTensor()(pil_img)
+  t = 2*t-1 # [0,1]->[-1,1]
+  t = t.unsqueeze(0)
+  t = t.to(device)
+  return(t)
+
+import torchvision
+import matplotlib.pyplot as plt
+
+def display_as_pilimg(t, title=None):
+    t = 0.5 + 0.5 * t.to('cpu')
+    t = t.squeeze()
+    t = t.clamp(0., 1.)
+    pil_img = torchvision.transforms.ToPILImage()(t)
+
+    # Display using Matplotlib with a title
+    plt.imshow(pil_img)
+    plt.axis("off")  # Hide axis
+    if title:
+        plt.title(title)
+    plt.show()
+
+    return pil_img
+
+
 
 if __name__=="__main__":
     device = "cuda" if torch.cuda.is_available() else "cpu"
@@ -164,10 +222,10 @@ if __name__=="__main__":
     # Load Bedroom sample
     x_true_pil = Image.open(f'LSUN_bedroom_sample.jpg').resize((256, 256))
     x_true = pilimg_to_tensor(x_true_pil).to(device) 
-    res = display_as_pilimg_bigger(x_true)
+    res = display_as_pilimg(x_true)
 
     x, images = iterative_inpainting(
-    pipe_bedroom.unet,
+    pipe_bedroom,
     images=x_true,
     x=x_true.clone(),
     ts=[i for i in range(40,0,-1)])
