@@ -29,10 +29,11 @@ def iterative_inpainting(
     use_square_mask = False,
     is_imagenet=False,
     class_labels=None,
+    show_all_modified_image=False
 ):
     assert not is_imagenet or class_labels, "class_labels need to be provided for ImageNet models" 
     image_size = x.shape[-1]
-
+    original_image = images.clone()
     if use_square_mask:
         mask=create_square_mask(image_size)
 
@@ -58,10 +59,13 @@ def iterative_inpainting(
         t = (t_max_rho + ts[i] / (steps - 1) * (t_min_rho - t_max_rho)) ** rho
         print(f"Timestep T={ts[i]}")
         x0 = denoise(pipe, x, sigmas[i], class_labels=class_labels, is_imagenet=is_imagenet)[1]
-
+        model_pred_only = x0.clone()
         x0 = torch.clamp(x0, -1.0, 1.0)
         x0 = replacement(images, x0)
-        display_as_pilimg(x0, title=f"Timestep T={ts[i]}")
+        if not show_all_modified_image:
+            display_as_pilimg(x0, title=f"Timestep T={ts[i]}")
+        else:
+            display_as_pilimg(torch.cat((x0, model_pred_only, original_image), dim=3), title=f"Timestep T={ts[i]}.Blended image with generated and true, only generated and true image")
         next_t = (t_max_rho + ts[i + 1] / (steps - 1) * (t_min_rho - t_max_rho)) ** rho
         next_t = np.clip(next_t, t_min, t_max)
         x = x0 + torch.randn_like(x) * np.sqrt(next_t**2 - t_min**2)
@@ -220,7 +224,7 @@ if __name__=="__main__":
     pipe_bedroom = ConsistencyModelPipeline.from_pretrained("openai/diffusers-cd_bedroom256_lpips")
 
     # Load Bedroom sample
-    x_true_pil = Image.open(f'LSUN_bedroom_sample.jpg').resize((256, 256))
+    x_true_pil = Image.open(f'images/LSUN_bedroom_sample.jpg').resize((256, 256))
     x_true = pilimg_to_tensor(x_true_pil).to(device) 
     res = display_as_pilimg(x_true)
 

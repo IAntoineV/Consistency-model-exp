@@ -270,35 +270,6 @@ def consistency_distillation(cd_model, ddpm, dataset, epochs=5000, batch_size=12
             plt.show()
 
 
-def multistep_consistency_sampling(cm, N, n_samples=1000, device="cuda"):
-    """
-    Multistep Consistency Sampling algorithm for multiple samples.
-
-    Args:
-        cm: Trained consistency model.
-        N: Number of time steps.
-        n_samples: Number of samples to generate.
-        device: Computation device.
-
-    Returns:
-        Sampled data from the model.
-    """
-    with torch.no_grad():
-        time_steps = torch.flip(compute_time_steps(N).to(device), dims=[0])  # Reverse the time steps
-        x = torch.randn(n_samples, cm.input_dim, device=device)  # Initial noise samples
-
-        # Ensure time_steps[0] has the same batch size as x
-        t = time_steps[0].expand(n_samples)
-        x = cm(x, t)  # Initial denoising step at t = T
-        stds = [torch.sqrt(tau_n ** 2 - time_steps[-1] ** 2) for tau_n in time_steps]
-        for n in range(N - 1):
-            z = torch.randn_like(x, device=device)  # Gaussian noise sample
-            tau_n = time_steps[n]
-            x_hat_tau_n = x + stds[n] * z
-            x = cm(x_hat_tau_n, tau_n.expand(n_samples))
-    return x.cpu()
-
-
 def one_step_consistency_sampling(cm,time_steps,n_samples=1000, device="cuda"):
     """
     One-Step Consistency Sampling algorithm.
