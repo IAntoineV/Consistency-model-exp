@@ -24,7 +24,7 @@ class LineDataset(Dataset):
 
 
 class Circle2DDataset(Dataset):
-    def __init__(self, length, center:torch.Tensor,r):
+    def __init__(self, length, center:torch.Tensor,r, device="cpu", dtype=torch.float32):
         super(Circle2DDataset, self).__init__()
         self.length = length
         self.center = center
@@ -32,7 +32,7 @@ class Circle2DDataset(Dataset):
         thetas = 2*torch.pi * torch.rand([self.length])
         x,y = torch.cos(thetas), torch.sin(thetas)
         data = torch.stack([x,y], dim=-1)
-        self.data = data
+        self.data = self.r* data.to(device=device, dtype=dtype)
         self.shape = list(x.shape)
 
     def __len__(self):
